@@ -17,28 +17,47 @@
 
 # RocketMQ TCC Sample
 
-This sample demonstrates how to use Seata-Go's RocketMQ TCC integration for distributed transactional messaging.
+This sample demonstrates how to use Seata-Go's RocketMQ integration for distributed transactional messaging.
 
 ## Use Case Description
 
 This sample showcases:
 - Sending RocketMQ transactional messages within Seata global transactions
-- TCC (Try-Confirm-Cancel) pattern for message reliability
-- Idempotency protection using TCC fence mechanism
+- Automatic TCC (Try-Confirm-Cancel) handling by the SDK
 - Both commit and rollback scenarios
+
+## Key Teaching Point
+
+**The RocketMQ integration has TCC built-in.** When you call `producer.Send(ctx, msg)` inside a global transaction, the SDK automatically:
+1. Detects the global transaction context via `tm.IsGlobalTx(ctx)`
+2. Invokes its internal TCC proxy to register a branch transaction
+3. Sends a half-message to RocketMQ (Prepare phase)
+4. Delegates Commit/Rollback to RocketMQ's transaction listener based on global transaction outcome
+
+**You do NOT need to create a TCC service wrapper** - just use the producer directly.
+
+## Architecture
+
+```
+main.go
+  ↓
+tm.WithGlobalTx() ← Global Transaction Boundary
+  ↓
+producer.Send(ctx, msg) ← SDK auto-applies TCC
+  ↓
+[SDK Internal] tccProxy.Prepare() → RocketMQ half-message
+  ↓
+[On Commit] → TransactionListener → Message becomes consumable
+[On Rollback] → TransactionListener → Message deleted
+```
 
 ## Prerequisites
 
-1. **MySQL** (for TCC fence log)
-   - Version: 5.7+
-   - Database: `seata`
-   - User: `root` / Password: `root`
-
-2. **Seata TC Server**
+1. **Seata TC Server**
    - Version: Compatible with seata-go v2.x
    - Address: `127.0.0.1:8091`
 
-3. **RocketMQ**
+2. **RocketMQ**
    - Version: 4.x or 5.x
    - NameServer: `127.0.0.1:9876`
    - Broker running
@@ -48,19 +67,12 @@ This sample showcases:
 ### 1. Start Infrastructure
 
 ```bash
-# Start MySQL, Seata Server, and RocketMQ using docker-compose
+# Start Seata Server and RocketMQ using docker-compose
 cd ../../dockercompose
 docker-compose up -d
 ```
 
-### 2. Initialize Database
-
-```bash
-# Create fence table
-mysql -h127.0.0.1 -uroot -proot seata < script/mysql.sql
-```
-
-### 3. Run the Sample
+### 2. Run the Sample
 
 **Commit Scenario** (message will be sent and committed):
 ```bash
@@ -77,37 +89,55 @@ go run main.go --mode=rollback
 ## Expected Behavior
 
 ### Commit Mode
-1. Application starts global transaction
-2. Prepare phase: Sends RocketMQ half-message (not consumable yet)
-3. Fence records status=1 (tried)
-4. Business logic succeeds
-5. Commit phase: Message becomes consumable
-6. Fence updates status=2 (committed)
+1. Application starts global transaction (XID logged)
+2. `producer.Send()` is called → SDK internally calls `tccProxy.Prepare()`
+3. RocketMQ half-message sent (not consumable yet)
+4. Business function returns `nil` → global transaction commits
+5. RocketMQ TransactionListener receives commit signal
+6. Message becomes consumable
 7. Consumers can now receive the message
 
 ### Rollback Mode
-1. Application starts global transaction
-2. Prepare phase: Sends RocketMQ half-message
-3. Fence records status=1 (tried)
-4. Business logic returns error (simulated failure)
-5. Rollback phase: Message is deleted/canceled
-6. Fence updates status=3 (rollbacked)
+1. Application starts global transaction (XID logged)
+2. `producer.Send()` is called → SDK internally calls `tccProxy.Prepare()`
+3. RocketMQ half-message sent
+4. Business function returns `error` → global transaction rolls back
+5. RocketMQ TransactionListener receives rollback signal
+6. Message is deleted/canceled
 7. Message never becomes consumable
 
 ## Verification
 
-Check fence log table:
-```sql
-SELECT * FROM tcc_fence_log ORDER BY gmt_create DESC LIMIT 10;
+Check Seata TC server logs for branch registration:
+```
+Branch registered: xid=..., branchId=..., resourceId=RocketMQTCC
 ```
 
-Check RocketMQ console or CLI tools to verify message visibility.
+Check RocketMQ console or CLI tools to verify message visibility:
+- Commit mode: Message appears in topic `seata-tcc-test`
+- Rollback mode: No message in topic
+
+## Code Walkthrough
+
+```go
+// Create producer - SDK creates internal TCC proxy
+producer, _ := rocketmq.NewSeataMQProducer(cfg)
+producer.Start()
+
+// Execute global transaction
+tm.WithGlobalTx(ctx, config, func(ctx context.Context) error {
+    // Direct SDK usage - no wrapper needed
+    msg := primitive.NewMessage("topic", payload)
+    _, err := producer.Send(ctx, msg)  // SDK handles TCC automatically
+    
+    if mode == "rollback" {
+        return fmt.Errorf("trigger rollback")  // Error triggers rollback
+    }
+    return nil  // Success triggers commit
+})
+```
 
 ## Troubleshooting
-
-**Issue**: `database connect failed`
-- Ensure MySQL is running and accessible
-- Verify credentials in `service/producer_service.go`
 
 **Issue**: `seata server not available`
 - Check Seata TC server is running on `127.0.0.1:8091`
@@ -116,3 +146,7 @@ Check RocketMQ console or CLI tools to verify message visibility.
 **Issue**: `RocketMQ connection failed`
 - Ensure RocketMQ NameServer and Broker are running
 - Check network connectivity to `127.0.0.1:9876`
+
+**Issue**: `params must be *primitive.Message`
+- This error indicates incorrect SDK usage
+- Always pass `*primitive.Message` to `producer.Send()`, not other types

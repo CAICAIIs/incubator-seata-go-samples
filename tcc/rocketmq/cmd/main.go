@@ -19,13 +19,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	"seata.apache.org/seata-go-samples/tcc/rocketmq/service"
+	"github.com/apache/rocketmq-client-go/v2/primitive"
 	"seata.apache.org/seata-go/v2/pkg/client"
+	"seata.apache.org/seata-go/v2/pkg/integration/rocketmq"
 	"seata.apache.org/seata-go/v2/pkg/tm"
 	"seata.apache.org/seata-go/v2/pkg/util/log"
 )
@@ -40,12 +42,31 @@ func main() {
 	// Initialize Seata client
 	client.InitPath("../../../conf/seatago.yml")
 
+	// Create RocketMQ producer
+	// Note: SeataMQProducer internally creates TCC proxy - no need to wrap it again
+	cfg := rocketmq.NewDefaultSeataMQProducerConfig()
+	cfg.NameServerAddrs = []string{"127.0.0.1:9876"}
+	cfg.GroupName = "seata-tcc-producer-group"
+	cfg.InstanceName = "seata-tcc-producer-instance"
+
+	producer, err := rocketmq.NewSeataMQProducer(cfg)
+	if err != nil {
+		log.Errorf("Create producer failed: %v", err)
+		os.Exit(1)
+	}
+
+	if err := producer.Start(); err != nil {
+		log.Errorf("Start producer failed: %v", err)
+		os.Exit(1)
+	}
+	defer producer.Shutdown()
+
 	// Execute global transaction
-	err := tm.WithGlobalTx(context.Background(), &tm.GtxConfig{
-		Name:    "RocketMQTCCSampleGlobalTx",
+	err = tm.WithGlobalTx(context.Background(), &tm.GtxConfig{
+		Name:    "RocketMQTCCSample",
 		Timeout: 60000,
 	}, func(ctx context.Context) error {
-		return business(ctx, *mode)
+		return sendMessage(ctx, producer, *mode)
 	})
 
 	if err != nil {
@@ -54,32 +75,36 @@ func main() {
 	}
 
 	log.Infof("Global transaction completed successfully in %s mode", *mode)
-	os.Exit(0)
 }
 
-func business(ctx context.Context, mode string) error {
-	// Log transaction context
-	log.Infof("Starting global transaction, XID: %s", tm.GetXID(ctx))
-	log.Infof("Executing in %s mode", mode)
+func sendMessage(ctx context.Context, producer *rocketmq.SeataMQProducer, mode string) error {
+	xid := tm.GetXID(ctx)
+	log.Infof("Sending message in %s mode, XID: %s", mode, xid)
 
-	// Get TCC service proxy
-	svc := service.NewRocketMQTCCServiceProxy()
+	// Prepare message payload
+	payload, _ := json.Marshal(map[string]interface{}{
+		"mode":      mode,
+		"timestamp": time.Now().Unix(),
+		"message":   "RocketMQ TCC test message",
+		"xid":       xid,
+	})
 
-	// Call Prepare phase with params
-	params := map[string]interface{}{
-		"mode":    mode,
-		"message": "test message",
-	}
-	_, err := svc.Prepare(ctx, params)
+	msg := primitive.NewMessage("seata-tcc-test", payload)
+	msg.WithTag("TCC_TEST")
+
+	// SDK auto-detects global transaction context and applies TCC automatically
+	// When tm.IsGlobalTx(ctx) is true, producer.Send() internally calls tccProxy.Prepare()
+	result, err := producer.Send(ctx, msg)
 	if err != nil {
-		log.Errorf("Prepare failed: %v", err)
+		log.Errorf("Send message failed: %v", err)
 		return err
 	}
 
-	log.Infof("Business logic completed successfully")
+	log.Infof("Message sent successfully, msgId=%s, offsetMsgId=%s", result.MsgID, result.OffsetMsgID)
 
-	// For rollback mode, return error after successful Prepare
+	// Simulate rollback scenario by returning error
 	if mode == "rollback" {
+		log.Infof("Simulating rollback scenario")
 		return fmt.Errorf("simulated rollback scenario")
 	}
 
