@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	dubbo.apache.org/dubbo-go/v3 v3.1.1
+	github.com/apache/rocketmq-client-go/v2 v2.1.2
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-sql-driver/mysql v1.7.0
 	github.com/parnurzeal/gorequest v0.2.16
@@ -12,14 +13,20 @@ require (
 	gorm.io/driver/mysql v1.4.5
 	gorm.io/gorm v1.24.3
 	seata.apache.org/seata-go v1.2.1-0.20251220113411-b18bcb019b65
+	seata.apache.org/seata-go/v2 v2.0.0-00010101000000-000000000000
 )
 
 require (
 	cloud.google.com/go/compute v1.20.1 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df // indirect
 	github.com/google/cel-go v0.18.0 // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/robertkrimen/otto v0.4.0 // indirect
+	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
+	github.com/tidwall/gjson v1.13.0 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
 	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230803162519-f966b187b2e5 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230803162519-f966b187b2e5 // indirect
@@ -166,5 +173,5 @@ require (
 	vimagination.zapto.org/byteio v0.0.0-20200222190125-d27cba0f0b10 // indirect
 )
 
-// For local testing only.
-//replace seata.apache.org/seata-go => ../incubator-seata-go
+// For local testing with RocketMQ integration.
+replace seata.apache.org/seata-go/v2 => ../incubator-seata-go
