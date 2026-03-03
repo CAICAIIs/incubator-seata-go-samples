@@ -174,4 +174,4 @@ require (
 )
 
 // For local testing only.
-// replace seata.apache.org/seata-go/v2 => ../incubator-seata-go
+// replace seata.apache.org/seata-go => ../incubator-seata-go
