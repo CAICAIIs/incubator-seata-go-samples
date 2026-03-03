@@ -173,5 +173,5 @@ require (
 	vimagination.zapto.org/byteio v0.0.0-20200222190125-d27cba0f0b10 // indirect
 )
 
-// For local testing with RocketMQ integration.
-replace seata.apache.org/seata-go/v2 => ../incubator-seata-go
+// For local testing only.
+// replace seata.apache.org/seata-go/v2 => ../incubator-seata-go
