@@ -13,7 +13,6 @@ require (
 	gorm.io/driver/mysql v1.4.5
 	gorm.io/gorm v1.24.3
 	seata.apache.org/seata-go v1.2.1-0.20251220113411-b18bcb019b65
-	seata.apache.org/seata-go/v2 v2.0.0-00010101000000-000000000000
 )
 
 require (
