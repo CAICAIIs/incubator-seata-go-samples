@@ -44,6 +44,17 @@ func GetXAMySqlDb() *sql.DB {
 	return dbAt
 }
 
+func GetXAOracleDb() *sql.DB {
+	defaultOracleEnv()
+	// Oracle DSN format: oracle://user:password@host:port/service_name
+	dsn := os.ExpandEnv("oracle://${ORACLE_USERNAME}:${ORACLE_PASSWORD}@${ORACLE_HOST}:${ORACLE_PORT}/${ORACLE_SERVICE}")
+	dbXa, err := sql.Open(sql2.SeataXAOracleDriver, dsn)
+	if err != nil {
+		panic("init seata xa oracle driver error")
+	}
+	return dbXa
+}
+
 func defaultEnv() {
 	if os.Getenv("MYSQL_HOST") == "" {
 		_ = os.Setenv("MYSQL_HOST", "127.0.0.1")
@@ -59,5 +70,23 @@ func defaultEnv() {
 	}
 	if os.Getenv("MYSQL_DB") == "" {
 		_ = os.Setenv("MYSQL_DB", "seata_client")
+	}
+}
+
+func defaultOracleEnv() {
+	if os.Getenv("ORACLE_HOST") == "" {
+		_ = os.Setenv("ORACLE_HOST", "127.0.0.1")
+	}
+	if os.Getenv("ORACLE_PORT") == "" {
+		_ = os.Setenv("ORACLE_PORT", "1521")
+	}
+	if os.Getenv("ORACLE_USERNAME") == "" {
+		_ = os.Setenv("ORACLE_USERNAME", "system")
+	}
+	if os.Getenv("ORACLE_PASSWORD") == "" {
+		_ = os.Setenv("ORACLE_PASSWORD", "oracle")
+	}
+	if os.Getenv("ORACLE_SERVICE") == "" {
+		_ = os.Setenv("ORACLE_SERVICE", "XE")
 	}
 }
